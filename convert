@@ -1,2 +1,55 @@
 #!/bin/bash
 
+set -e
+set -x
+
+main() {
+    snapshotpath=$(realpath "$1")
+    snapshotname=$(basename $snapshotpath)
+    index_yaml=$(mktemp)
+    backup_yaml=$(mktemp)
+    load_prefix
+    source_backup_yaml=$(realpath "$(find . -iname backup.yaml)")
+    sed -e '/^snapshots:/,/^[a-z]\+:/{/^[a-z]\+:/!d}' -e '/^volume_snapshots:/,/^[a-z]\+:/{/^[a-z]\+:/!d}' "$source_backup_yaml" > "$backup_yaml"
+    machinename=$(sed -n '/^container:$/,/^[a-z]*:/p'  "$backup_yaml" | grep -i "^  name: " | cut -d" " -f4)
+    info=$(sed 's/^/  /' "$backup_yaml")
+
+    grep -sq "type: container" "$backup_yaml" && { prefix=$container_prefix;}
+    #grep -sq "type: virtual-machine" "$backup_yaml" && { prefix=$vm_prefix; echo mv "$snapshotname" virtual-machine ; mv virtual-machine/root.img virtual-machine.img; }
+    printf "%s\n%s" "$prefix" "$info"  > "$index_yaml"
+    sed -i "s/^name:.*/name: $machinename/g" "$index_yaml"
+    tar -c -f "$PWD/${machinename}.tar"  --numeric-owner --xattrs --acls --transform "s#$snapshotname#backup/container#" --transform "s#.*$(basename $index_yaml)#backup/index.yaml#" --transform "s#.*$(basename $backup_yaml)#backup/container/backup.yaml#" "$snapshotname" -C $(dirname "$index_yaml") "$index_yaml" -C $(dirname "$backup_yaml") "$backup_yaml"
+
+
+}
+
+load_prefix(){
+container_prefix=$(cat <<-EOF
+name: $machinename
+backend: btrfs
+pool: default
+optimized: false
+optimized_header: false
+type: container
+config:
+EOF
+)
+
+vm_prefix=$(cat <<-EOF
+name: $machinename
+backend: btrfs
+pool: default
+optimized: false
+optimized_header: false
+type: virtual-machine
+config:
+EOF
+)
+}
+
+main "$@"
+
+
+
+
+exit 0
